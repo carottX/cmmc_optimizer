@@ -132,7 +132,21 @@ static void worklistDoSolveForward(DataflowAnalysis *t, IR_function *func) {
  */
 static void initializeBackward(DataflowAnalysis *t, IR_function *func) {
     // 此处需要实现后向分析的初始化逻辑
-    TODO();
+    for_list(IR_block_ptr, i, func->blocks) {
+        IR_block *blk = i->val;
+        void *out_fact = VCALL(*t, newInitialFact); 
+        VCALL(*t, setOutFact, blk, out_fact);
+
+        if(blk == func->exit) {
+            // 对于出口基本块，设置其IN集合为边界条件下的数据流事实
+            void *exit_in_fact = VCALL(*t, newBoundaryFact, func);
+            VCALL(*t, setInFact, blk, exit_in_fact);
+        } else {
+            // 对于其他块，IN集合也初始化为初始数据流事实
+            void *in_fact = VCALL(*t, newInitialFact);
+            VCALL(*t, setInFact, blk, in_fact);
+        }
+    }
 }
 
 /**
@@ -152,7 +166,32 @@ static void iterativeDoSolveBackward(DataflowAnalysis *t, IR_function *func) {
  */
 static void worklistDoSolveBackward(DataflowAnalysis *t, IR_function *func) {
     // 此处需要实现后向分析的工作列表求解逻辑
-    TODO();
+    List_IR_block_ptr worklist;
+    List_IR_block_ptr_init(&worklist);
+
+    for_list(IR_block_ptr, i, func->blocks)
+        VCALL(worklist, push_back, i->val);
+    
+    while(worklist.head != NULL) {
+        IR_block *blk = worklist.head->val;
+        VCALL(worklist, pop_front);
+
+        Fact *out_fact = VCALL(*t, getOutFact, blk), *in_fact = VCALL(*t, getInFact, blk);
+
+        for_list(IR_block_ptr, i, *VCALL(func->blk_succ, get, blk)) {
+            IR_block *succ = i->val;
+            Fact *succ_in_fact = VCALL(*t, getInFact, succ);
+            // 将后继块的IN集合 meet 到当前块的OUT集合中
+            VCALL(*t, meetInto, succ_in_fact, out_fact);
+        }
+
+        if(VCALL(*t, transferBlock, blk, in_fact, out_fact)) {
+            // 如果OUT集合发生变化，则将所有前驱块加入工作列表
+            for_list(IR_block_ptr, i, *VCALL(func->blk_pred, get, blk)) {
+                VCALL(worklist, push_back, i->val);
+            }
+        }
+    }
 }
 
 //// ============================ 求解器入口 (Solver Entry) ============================
