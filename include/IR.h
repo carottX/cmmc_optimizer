@@ -130,8 +130,7 @@ struct IR_stmt_virtualTable {
 #define CLASS_IR_stmt struct { \
         struct IR_stmt_virtualTable const *vTable; \
         IR_stmt_type stmt_type; \
-        bool dead; \
-}
+        bool dead; };
 
 /**
  * @brief IR语句的通用结构体。
