@@ -19,7 +19,17 @@ static CPValue meetValue(CPValue v1, CPValue v2) {
      * NAC meet X = NAC
      * X meet NAC = NAC
      */
-    TODO(); // 此处需要实现meet逻辑
+    if(v1.kind == UNDEF) return v2;
+    if(v2.kind == UNDEF) return v1;
+    if(v1.kind == CONST && v2.kind == CONST) {
+        if(v1.const_val == v2.const_val) return v1; 
+        else return get_NAC(); 
+    }
+    if(v1.kind == NAC || v2.kind == NAC) {
+        return get_NAC();
+    }
+    TODO();
+    return get_UNDEF(); // SHOULDN'T REACH HERE.
 }
 
 // 辅助函数，用于计算二元运算结果的CPValue值。
@@ -44,8 +54,20 @@ static CPValue calculateValue(IR_OP_TYPE IR_op_type, CPValue v1, CPValue v2) {
      * return get_CONST(res_const);
      * } ... 其他情况 (例如，如果v1是NAC，则结果是NAC；如果v1是UNDEF，结果是UNDEF)
      */
-    TODO(); // 此处需要实现二元运算的常量折叠逻辑
-}
+    if(v1.kind == UNDEF || v2.kind == UNDEF) return get_UNDEF();
+    if(v1.kind == NAC || v2.kind == NAC) return get_NAC();
+    int c1 = v1.const_val, c2 = v2.const_val;
+    int result;
+    switch(IR_op_type) {
+        case IR_OP_ADD: result = c1 + c2; break;
+        case IR_OP_SUB: result = c1 - c2; break;
+        case IR_OP_MUL: result = c1 * c2; break;
+        case IR_OP_DIV:
+            if(c2 == 0) return get_UNDEF(); // 除以0，结果未定义
+            result = c1 / c2; break;
+        default: assert(0); // 不支持的操作类型
+    }
+    return get_CONST(result); 
 
 // UNDEF状态等价于在Map中不存在该Var的映射项。
 // 此函数从数据流事实（Map_IR_var_CPValue）中获取指定IR变量的CPValue。
@@ -110,7 +132,7 @@ static void ConstantPropagation_teardown(ConstantPropagation *t) {
 static bool
 ConstantPropagation_isForward (ConstantPropagation *t) {
     // TODO: return isForward?; 应返回 true
-    TODO();
+    return true;
 }
 
 // 创建并返回边界条件下的数据流事实（通常是程序入口的OUT集合）。
@@ -125,7 +147,9 @@ ConstantPropagation_newBoundaryFact (ConstantPropagation *t, IR_function *func) 
      * for_vec(IR_var, param_ptr, func->params)
      * VCALL(*fact, insert, *param_ptr, get_NAC()); // 或 get_UNDEF()
      */
-    TODO();
+    for_vec(IR_var, param_ptr, func->params) {
+        VCALL(*fact, set, *param_ptr, get_NAC()); // 将所有参数初始化为NAC
+    }
     return fact;
 }
 
@@ -193,7 +217,8 @@ void ConstantPropagation_transferStmt (ConstantPropagation *t,
          * rd 的新状态就是 rs 的状态。
          * Fact_update_value(fact, def, use_val);
          */
-        TODO();
+        Fact_update_value(fact, def, use_val);
+        // TODO();
     } else if(stmt->stmt_type == IR_OP_STMT) { // 处理操作语句: rd := rs1 op rs2
         IR_op_stmt *op_stmt = (IR_op_stmt*)stmt;
         IR_OP_TYPE IR_op_type = op_stmt->op; // 操作类型
@@ -205,7 +230,9 @@ void ConstantPropagation_transferStmt (ConstantPropagation *t,
          * CPValue result_val = calculateValue(IR_op_type, rs1_val, rs2_val);
          * Fact_update_value(fact, def, result_val);
          */
-        TODO();
+        CPValue result_val = calculateValue(IR_op_type, rs1_val, rs2_val); 
+        Fact_update_value(fact, def, result_val);
+        // TODO();
     } else { // 处理其他可能定义新变量的语句（如READ, CALL, LOAD）
         IR_var def = VCALL(*stmt, get_def); // 获取语句定义的变量
         if(def != IR_VAR_NONE) { // 如果语句确实定义了一个变量
@@ -216,7 +243,8 @@ void ConstantPropagation_transferStmt (ConstantPropagation *t,
              * 通常，这些操作会使变量变为NAC，除非有更复杂的分析（如过程间分析或指针分析）。
              * Fact_update_value(fact, def, get_NAC());
              */
-            TODO();
+            FACT_update_value(fact, def, get_NAC());
+            // TODO();
         }
     }
 }

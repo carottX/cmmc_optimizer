@@ -30,19 +30,19 @@ static void CopyPropagation_teardown(CopyPropagation *t) {
 static bool
 CopyPropagation_isForward (CopyPropagation *t) {
     // TODO: isForward?
-    TODO();
+    return true;
 }
 
 static Fact_def_use*
 CopyPropagation_newBoundaryFact (CopyPropagation *t, IR_function *func) {
     // TODO: return NEW(Fact_def_use, is_top?);
-    TODO();
+    return NEW(Fact_def_use, false);
 }
 
 static Fact_def_use*
 CopyPropagation_newInitialFact (CopyPropagation *t) {
     // TODO: return NEW(Fact_def_use, is_top?);
-    TODO();
+    return NEW(Fact_def_use, true);
 }
 
 static void
@@ -105,13 +105,21 @@ void CopyPropagation_transferStmt (CopyPropagation *t,
     IR_var new_def = VCALL(*stmt, get_def);
     //// copy_kill
     if(new_def != IR_VAR_NONE) {
+        if(fact->is_top) {
+            fact->is_top = false;
+            VCALL(fact->def_to_use, teardown);
+            VCALL(fact->use_to_def, teardown);
+            Map_IR_var_IR_var_init(&fact->def_to_use);
+            Map_IR_var_IR_var_init(&fact->use_to_def);
+        }
         if(VCALL(fact->def_to_use, exist, new_def)) {
             IR_var use = VCALL(fact->def_to_use, get, new_def);
             /* TODO:
              * use is killed by new_def
              * VCALL(fact->def_to_use/use_to_def?, delete, use/new_def?);
              */ 
-            TODO();
+            VCALL(fact->def_to_use, delete, new_def);
+            VCALL(fact->use_to_def, delete, use);
         }
         if(VCALL(fact->use_to_def, exist, new_def)) {
             IR_var def = VCALL(fact->use_to_def, get, new_def);
@@ -119,7 +127,8 @@ void CopyPropagation_transferStmt (CopyPropagation *t,
              * def is killed by new_def
              * VCALL(fact->def_to_use/use_to_def?, delete, def/new_def?);
              */ 
-            TODO();
+            VCALL(fact->use_to_def, delete, new_def);
+            VCALL(fact->def_to_use, delete, def);
         }
     }
     //// copy_gen
@@ -131,7 +140,15 @@ void CopyPropagation_transferStmt (CopyPropagation *t,
              * def is killed by new_def
              * VCALL(fact->def_to_use/use_to_def?, set, def/use?);
              */ 
-            TODO();
+            if (fact->is_top) {
+                fact->is_top = false;
+                Map_IR_var_IR_var_teardown(&fact->def_to_use);
+                Map_IR_var_IR_var_teardown(&fact->use_to_def);
+                Map_IR_var_IR_var_init(&fact->def_to_use);
+                Map_IR_var_IR_var_init(&fact->use_to_def);
+            }
+            VCALL(fact->def_to_use, set, def, use);
+            VCALL(fact->use_to_def, set, use, def);
         }
     }
 }
