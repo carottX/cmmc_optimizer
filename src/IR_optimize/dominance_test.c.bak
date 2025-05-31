@@ -1,0 +1,90 @@
+//
+// Created by Assistant
+// 支配节点分析测试和使用示例
+//
+
+#include <dominance_analysis.h>
+#include <IR.h>
+#include <stdio.h>
+
+/**
+ * @brief 对指定函数执行支配节点分析并输出结果
+ * @param func 要分析的IR函数
+ */
+void perform_dominance_analysis(IR_function *func) {
+    if (!func) {
+        printf("错误: 传入的函数指针为空\n");
+        return;
+    }
+    
+    printf("开始对函数 '%s' 进行支配节点分析...\n\n", func->func_name);
+    
+    // 创建支配节点分析器
+    DominanceAnalyzer analyzer;
+    DominanceAnalyzer_init(&analyzer, func);
+    
+    // 执行支配节点计算
+    DominanceAnalyzer_compute_dominators(&analyzer);
+    
+    // 构建支配树
+    DominanceAnalyzer_build_dominator_tree(&analyzer);
+    
+    // 输出分析结果
+    DominanceAnalyzer_print_result(&analyzer, stdout);
+    
+    // 输出支配树结构
+    DominanceAnalyzer_print_dominator_tree(&analyzer, stdout);
+    
+    // 示例查询操作
+    printf("========== 支配关系查询示例 ==========\n");
+    
+    if (func->blocks.head && func->blocks.head->nxt) {
+        IR_block_ptr first_block = func->blocks.head->val;
+        IR_block_ptr second_block = func->blocks.head->nxt->val;
+        
+        printf("查询: 第一个基本块是否支配第二个基本块?\n");
+        printf("结果: %s\n", 
+               DominanceAnalyzer_dominates(&analyzer, first_block, second_block) ? 
+               "是" : "否");
+        
+        IR_block_ptr idom = DominanceAnalyzer_get_immediate_dominator(&analyzer, second_block);
+        if (idom) {
+            printf("第二个基本块的直接支配节点: %p", idom);
+            if (idom->label != IR_LABEL_NONE) {
+                printf("[L%u]", idom->label);
+            }
+            printf("\n");
+        } else {
+            printf("第二个基本块没有直接支配节点（可能是入口节点）\n");
+        }
+    }
+    
+    printf("\n");
+    
+    // 清理资源
+    DominanceAnalyzer_teardown(&analyzer);
+    printf("支配节点分析完成。\n\n");
+}
+
+/**
+ * @brief 对所有函数执行支配节点分析
+ */
+void analyze_all_functions_dominance() {
+    if (!ir_program_global) {
+        printf("错误: 全局IR程序为空\n");
+        return;
+    }
+    
+    printf("===============================================\n");
+    printf("开始执行支配节点分析\n");
+    printf("===============================================\n\n");
+    
+    // 对程序中的每个函数执行支配节点分析
+    for_vec(IR_function_ptr, func_ptr, ir_program_global->functions) {
+        IR_function *func = *func_ptr;
+        perform_dominance_analysis(func);
+        printf("-----------------------------------------------\n\n");
+    }
+    
+    printf("所有函数的支配节点分析完成。\n");
+}

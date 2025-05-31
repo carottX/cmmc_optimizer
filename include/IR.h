@@ -531,4 +531,10 @@ typedef struct {
  */
 extern void IR_write_stmt_init(IR_write_stmt *write_stmt, IR_val rs);
 
+// 创建一个新的无条件跳转语句，目标为指定基本块
+IR_stmt *IR_goto_new(IR_block *target);
+
+// 替换pred块中的某个后继（old_succ）为新的后继（new_succ）
+void replace_successor(IR_block *pred, IR_block *old_succ, IR_block *new_succ);
+
 #endif //CODE_IR_H

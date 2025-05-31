@@ -7,6 +7,9 @@
 #include <constant_propagation.h>
 #include <available_expressions_analysis.h>
 #include <copy_propagation.h>
+#include <dominance_analysis.h>
+#include <loop_analysis.h>
+#include <stdio.h>
 
 void remove_dead_block(IR_function *func) {
     // remove
@@ -31,13 +34,41 @@ void remove_dead_stmt(IR_block *blk) {
 }
 
 
+void _IR_block_print(IR_block *block, FILE *out) {
+    if(block->label != IR_LABEL_NONE)
+        fprintf(out, "LABEL L%u :\n", block->label);
+    for_list(IR_stmt_ptr, i, block->stmts)
+        VCALL(*i->val, print, out);
+    }
+
 void IR_optimize() {
+    // 首先执行支配节点分析
+    printf("========== 执行支配节点分析 ==========\n");
+    if (!ir_program_global) {
+        printf("错误: 全局IR程序为空\n");
+        return;
+    }
+    
     ConstantPropagation *constantPropagation;
     AvailableExpressionsAnalysis *availableExpressionsAnalysis;
     CopyPropagation *copyPropagation;
     LiveVariableAnalysis *liveVariableAnalysis;
     for_vec(IR_function_ptr, i, ir_program_global->functions) {
         IR_function *func = *i;
+        
+        // 对当前函数执行支配节点分析
+        printf("开始对函数 '%s' 进行支配节点分析...\n\n", func->func_name);
+        DominanceAnalyzer dom_analyzer;
+        DominanceAnalyzer_init(&dom_analyzer, func);
+        DominanceAnalyzer_compute_dominators(&dom_analyzer);
+        DominanceAnalyzer_print_result(&dom_analyzer, stdout);
+        
+        // 执行循环分析
+        printf("开始对函数 '%s' 进行循环分析...\n\n", func->func_name);
+        perform_loop_analysis(func, &dom_analyzer);
+        
+        // 清理支配节点分析器
+        DominanceAnalyzer_teardown(&dom_analyzer);
 
         //// 全局公共表达式消除, 可替换为局部
         {
