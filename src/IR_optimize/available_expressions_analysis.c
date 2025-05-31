@@ -69,7 +69,7 @@ AvailableExpressionsAnalysis_newInitialFact (AvailableExpressionsAnalysis *t) {
      * InitFact = (Bottom: empty set) / (Top: universal set) / other?
      * return NEW(Fact_set_var, is_top?);
      */
-    return NEW(FACT_set_var, false);
+    return NEW(Fact_set_var, false);
 }
 
 static void

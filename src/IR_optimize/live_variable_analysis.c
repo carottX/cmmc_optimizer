@@ -32,7 +32,7 @@ static void LiveVariableAnalysis_teardown(LiveVariableAnalysis *t) {
 static bool
 LiveVariableAnalysis_isForward (LiveVariableAnalysis *t) {
     // TODO: return isForward?; 应返回 false
-    TODO();
+    return false;
 }
 
 /**
@@ -125,7 +125,7 @@ LiveVariableAnalysis_meetInto (LiveVariableAnalysis *t,
      * 对于活跃变量分析，meet操作是求并集 (union)。
      * return VCALL(*target, union_with, fact);
      */
-    TODO();
+    return VCALL(*target, union_with, fact);
 }
 
 /**
@@ -144,22 +144,17 @@ void LiveVariableAnalysis_transferStmt (LiveVariableAnalysis *t,
      * kill/gen?
      * 对于后向分析，应该先处理def（kill），再处理use（gen）。
      *
-     * 1. kill: 如果语句定义了一个变量 def，那么这个变量在语句执行前是否活跃，
-     * 取决于这条语句之后它是否被使用，而不是更早之前的状态。所以先从fact中移除def。
-     * if(def != IR_VAR_NONE) {
-     * VCALL(*fact, delete, def);
-     * }
-     *
-     * 2. gen: 如果语句使用了变量 use，那么这些变量在语句执行前一定是活跃的。
-     * 所以将所有use变量加入fact。
-     * for(unsigned i = 0; i < use.use_cnt; i ++) {
-     * IR_val use_val = use.use_vec[i];
-     * if(!use_val.is_const) { // 只处理变量，忽略常量
-     * VCALL(*fact, insert, use_val.var);
-     * }
-     * }
      */
-    TODO();
+    if(def != IR_VAR_NONE) {
+        VCALL(*fact, delete, def);
+    }
+
+    for(int i=0; i<use.use_cnt; ++i) {
+        IR_val use_var = use.use_vec[i];
+        if(!use_var.is_const && use_var.var != IR_VAR_NONE) { 
+            VCALL(*fact, insert, use_var.var); 
+        }
+    }
 }
 
 /**
@@ -279,7 +274,11 @@ static bool block_remove_dead_def (LiveVariableAnalysis *t, IR_block *blk) {
              * updated = true;
              * }
              */
-            TODO();
+            if(!VCALL(*current_live_fact, exist, def)) { 
+                stmt->dead = true; 
+                updated = true; 
+            }
+            // TODO();
         }
         // 在检查完当前语句后，更新活跃变量集合以反映到上一条语句的状态
         LiveVariableAnalysis_transferStmt(t, stmt, current_live_fact);

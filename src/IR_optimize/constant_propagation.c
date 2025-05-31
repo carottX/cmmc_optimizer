@@ -68,12 +68,11 @@ static CPValue calculateValue(IR_OP_TYPE IR_op_type, CPValue v1, CPValue v2) {
         default: assert(0); // 不支持的操作类型
     }
     return get_CONST(result); 
-
+}
 // UNDEF状态等价于在Map中不存在该Var的映射项。
 // 此函数从数据流事实（Map_IR_var_CPValue）中获取指定IR变量的CPValue。
 // 如果变量不在映射中，则认为其状态是UNDEF。
-static CPValue
-Fact_get_value_from_IR_var(Map_IR_var_CPValue *fact, IR_var var) {
+static CPValue Fact_get_value_from_IR_var(Map_IR_var_CPValue *fact, IR_var var) {
     // 检查变量是否存在于fact映射中
     return VCALL(*fact, exist, var) ? VCALL(*fact, get, var) : get_UNDEF();
 }
@@ -243,7 +242,7 @@ void ConstantPropagation_transferStmt (ConstantPropagation *t,
              * 通常，这些操作会使变量变为NAC，除非有更复杂的分析（如过程间分析或指针分析）。
              * Fact_update_value(fact, def, get_NAC());
              */
-            FACT_update_value(fact, def, get_NAC());
+            Fact_update_value(fact, def, get_NAC());
             // TODO();
         }
     }
