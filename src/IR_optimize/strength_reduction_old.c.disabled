@@ -1,0 +1,455 @@
+//
+// Created by Assistant
+// 强度削减优化 (Strength Reduction Optimization)
+// 将派生归纳变量的乘法操作替换为增量操作
+//
+
+#include "include/induction_variable_analysis.h"
+#include "include/loop_analysis.h"
+#include <IR.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <container/list.h>
+#include <container/treap.h>
+
+// 前向声明辅助函数
+static void replace_variable_in_stmt(IR_stmt *stmt, IR_var old_var, IR_var new_var);
+static void replace_variable_in_IR_val(IR_val *val, IR_var old_var, IR_var new_var);
+
+/**
+ * @brief 为派生归纳变量创建强度削减变量
+ * @param derived_iv 派生归纳变量
+ * @return 新创建的强度削减变量
+ */
+StrengthReductionVariable_ptr create_strength_reduction_variable(DerivedInductionVariable_ptr derived_iv) {
+    if (!derived_iv) return NULL;
+    
+    StrengthReductionVariable_ptr sr_var = malloc(sizeof(StrengthReductionVariable));
+    if (!sr_var) return NULL;
+    
+    // 分配新的变量
+    sr_var->new_variable = ir_var_generator();
+    sr_var->original_variable = derived_iv->variable;
+    sr_var->increment_value = derived_iv->coefficient * derived_iv->basic_iv->step;
+    sr_var->initialization_stmt = NULL;
+    sr_var->increment_stmt = NULL;
+    
+    printf("Created strength reduction variable v%u for v%u (increment: %d)\n",
+           sr_var->new_variable,
+           derived_iv->variable,
+           sr_var->increment_value);
+    
+    return sr_var;
+}
+
+/**
+ * @brief 在循环前序块中创建初始化语句
+ * @param sr_var 强度削减变量
+ * @param derived_iv 派生归纳变量
+ * @param loop 循环
+ */
+void create_initialization_in_preheader(StrengthReductionVariable_ptr sr_var, 
+                                       DerivedInductionVariable_ptr derived_iv, 
+                                       Loop_ptr loop) {
+    if (!sr_var || !derived_iv || !loop || !loop->preheader) return;
+    
+    // 创建初始化赋值语句：sr_var = coefficient * basic_iv + constant
+    // 如果 coefficient == 1，直接创建: sr_var = basic_iv + constant
+    // 否则先创建: tmp = coefficient * basic_iv, 然后 sr_var = tmp + constant
+    
+    if (derived_iv->coefficient == 1) {
+        // 简单情况：sr_var = basic_iv + constant
+        if (derived_iv->constant == 0) {
+            // sr_var = basic_iv
+            IR_val basic_iv_val = {.is_const = false, .var = derived_iv->basic_iv->variable};
+            IR_assign_stmt *assign_stmt = (IR_assign_stmt*)malloc(sizeof(IR_assign_stmt));
+            IR_assign_stmt_init(assign_stmt, sr_var->new_variable, basic_iv_val);
+            sr_var->initialization_stmt = (IR_stmt*)assign_stmt;
+        } else {
+            // sr_var = basic_iv + constant
+            IR_val basic_iv_val = {.is_const = false, .var = derived_iv->basic_iv->variable};
+            IR_val constant_val = {.is_const = true, .const_val = derived_iv->constant};
+            IR_op_stmt *op_stmt = (IR_op_stmt*)malloc(sizeof(IR_op_stmt));
+            IR_op_stmt_init(op_stmt, IR_OP_ADD, sr_var->new_variable, basic_iv_val, constant_val);
+            sr_var->initialization_stmt = (IR_stmt*)op_stmt;
+        }
+    } else {
+        // 复杂情况：需要先计算 coefficient * basic_iv
+        IR_var temp_var = ir_var_generator();
+        
+        // temp_var = coefficient * basic_iv
+        IR_val coeff_val = {.is_const = true, .const_val = derived_iv->coefficient};
+        IR_val basic_iv_val = {.is_const = false, .var = derived_iv->basic_iv->variable};
+        IR_op_stmt *mul_stmt = (IR_op_stmt*)malloc(sizeof(IR_op_stmt));
+        IR_op_stmt_init(mul_stmt, IR_OP_MUL, temp_var, coeff_val, basic_iv_val);
+        
+        // 将乘法语句添加到前序块
+        VCALL(loop->preheader->stmts, push_back, (IR_stmt*)mul_stmt);
+        
+        if (derived_iv->constant == 0) {
+            // sr_var = temp_var
+            IR_val temp_val = {.is_const = false, .var = temp_var};
+            IR_assign_stmt *assign_stmt = (IR_assign_stmt*)malloc(sizeof(IR_assign_stmt));
+            IR_assign_stmt_init(assign_stmt, sr_var->new_variable, temp_val);
+            sr_var->initialization_stmt = (IR_stmt*)assign_stmt;
+        } else {
+            // sr_var = temp_var + constant
+            IR_val temp_val = {.is_const = false, .var = temp_var};
+            IR_val constant_val = {.is_const = true, .const_val = derived_iv->constant};
+            IR_op_stmt *add_stmt = (IR_op_stmt*)malloc(sizeof(IR_op_stmt));
+            IR_op_stmt_init(add_stmt, IR_OP_ADD, sr_var->new_variable, temp_val, constant_val);
+            sr_var->initialization_stmt = (IR_stmt*)add_stmt;
+        }
+    }
+    
+    // 将初始化语句添加到前序块
+    VCALL(loop->preheader->stmts, push_back, sr_var->initialization_stmt);
+    
+    printf("Added initialization for v%u in preheader\n", sr_var->new_variable);
+}
+    new_node->nxt = NULL;
+    
+    if (loop->preheader->stmts.tail) {
+        loop->preheader->stmts.tail->nxt = new_node;
+        loop->preheader->stmts.tail = new_node;
+    } else {
+        loop->preheader->stmts.head = new_node;
+        loop->preheader->stmts.tail = new_node;
+    }
+    
+    sr_var->initialization_stmt = init_stmt;
+    
+    printf("Created initialization in preheader: v%u = %d * v%u + %d\n",
+           sr_var->new_variable,
+           derived_iv->coefficient,
+           derived_iv->basic_iv->variable,
+           derived_iv->constant);
+}
+
+/**
+ * @brief 在循环体中创建增量语句
+ * @param sr_var 强度削减变量
+ * @param loop 循环
+ */
+void create_increment_in_loop(StrengthReductionVariable_ptr sr_var, Loop_ptr loop) {
+    if (!sr_var || !loop || !loop->header) return;
+    
+    // 在循环头部创建增量语句：sr_var = sr_var + increment_value
+    IR_stmt *inc_stmt = malloc(sizeof(IR_stmt));
+    inc_stmt->kind = IR_ASSIGN;
+    inc_stmt->next = NULL;
+    
+    // 创建赋值结构
+    inc_stmt->stmt_assign = malloc(sizeof(IR_stmt_assign));
+    inc_stmt->stmt_assign->lvalue = sr_var->new_variable;
+    
+    // 创建右值：sr_var + increment_value
+    inc_stmt->stmt_assign->rvalue = malloc(sizeof(IR_operand));
+    inc_stmt->stmt_assign->rvalue->kind = IR_OPERAND_BINARY;
+    inc_stmt->stmt_assign->rvalue->operand_binary = malloc(sizeof(IR_operand_binary));
+    inc_stmt->stmt_assign->rvalue->operand_binary->op = IR_ADD;
+    
+    // 左操作数：sr_var
+    inc_stmt->stmt_assign->rvalue->operand_binary->left = malloc(sizeof(IR_operand));
+    inc_stmt->stmt_assign->rvalue->operand_binary->left->kind = IR_OPERAND_VAR;
+    inc_stmt->stmt_assign->rvalue->operand_binary->left->operand_var = sr_var->new_variable;
+    
+    // 右操作数：increment_value
+    inc_stmt->stmt_assign->rvalue->operand_binary->right = malloc(sizeof(IR_operand));
+    inc_stmt->stmt_assign->rvalue->operand_binary->right->kind = IR_OPERAND_CONST;
+    inc_stmt->stmt_assign->rvalue->operand_binary->right->operand_const = sr_var->increment_value;
+    
+    // 找到基本归纳变量的更新语句，在其后插入增量语句
+    // 为简化实现，我们直接添加到循环头部的末尾
+    ListNode_IR_stmt_ptr *new_node = malloc(sizeof(ListNode_IR_stmt_ptr));
+    new_node->val = inc_stmt;
+    new_node->nxt = NULL;
+    
+    if (loop->header->stmts.tail) {
+        loop->header->stmts.tail->nxt = new_node;
+        loop->header->stmts.tail = new_node;
+    } else {
+        loop->header->stmts.head = new_node;
+        loop->header->stmts.tail = new_node;
+    }
+    
+    sr_var->increment_stmt = inc_stmt;
+    
+    printf("Created increment in loop: v%u = v%u + %d\n",
+           sr_var->new_variable,
+           sr_var->new_variable,
+           sr_var->increment_value);
+}
+
+/**
+ * @brief 替换派生变量的使用
+ * @param sr_var 强度削减变量
+ * @param derived_iv 派生归纳变量
+ * @param loop_ivs 循环归纳变量集合
+ */
+void replace_derived_variable_uses(StrengthReductionVariable_ptr sr_var,
+                                 DerivedInductionVariable_ptr derived_iv,
+                                 LoopInductionVariables_ptr loop_ivs) {
+    if (!sr_var || !derived_iv || !loop_ivs) return;
+    
+    printf("  Replacing uses of v%u with v%u in loop\n",
+           derived_iv->variable,
+           sr_var->new_variable);
+    
+    // 遍历循环中的所有块和语句，替换对derived_iv->variable的使用
+    for_set(IR_block_ptr, block_node, loop_ivs->loop->blocks) {
+        IR_block_ptr block = block_node->key;
+        if (!block) continue;
+        
+        // 遍历基本块中的所有语句
+        for (ListNode_IR_stmt_ptr *stmt_node = block->stmts.head;
+             stmt_node != NULL; stmt_node = stmt_node->nxt) {
+            
+            IR_stmt *stmt = stmt_node->val;
+            
+            // 跳过定义语句本身
+            if (stmt == derived_iv->definition_stmt) {
+                continue;
+            }
+            
+            // 替换语句中对derived_iv->variable的使用
+            replace_variable_in_stmt(stmt, derived_iv->variable, sr_var->new_variable);
+        }
+    }
+    
+    // 移除原始的派生归纳变量定义语句
+    // 这需要找到包含该语句的块，然后从链表中移除
+    remove_stmt_from_function(derived_iv->definition_stmt, loop_ivs->loop);
+}
+
+/**
+ * @brief 从循环中移除语句
+ */
+static void remove_stmt_from_function(IR_stmt *target_stmt, Loop_ptr loop) {
+    if (!target_stmt || !loop) return;
+    
+    for_set(IR_block_ptr, block_node, loop->blocks) {
+        IR_block_ptr block = block_node->key;
+        if (!block) continue;
+        
+        // 查找并移除目标语句
+        ListNode_IR_stmt_ptr *prev_node = NULL;
+        ListNode_IR_stmt_ptr *current_node = block->stmts.head;
+        
+        while (current_node) {
+            if (current_node->val == target_stmt) {
+                // 从链表中移除节点
+                if (prev_node) {
+                    prev_node->nxt = current_node->nxt;
+                } else {
+                    block->stmts.head = current_node->nxt;
+                }
+                
+                if (current_node == block->stmts.tail) {
+                    block->stmts.tail = prev_node;
+                }
+                
+                printf("  Removed original definition statement for v%u\n",
+                       target_stmt->stmt_assign ? target_stmt->stmt_assign->lvalue : 0);
+                return;
+            }
+            prev_node = current_node;
+            current_node = current_node->nxt;
+        }
+    }
+}
+
+/**
+ * @brief 对循环执行强度削减优化
+ */
+void perform_strength_reduction(LoopInductionVariables_ptr loop_ivs) {
+    if (!loop_ivs || !loop_ivs->derived_ivs.head) return;
+    
+    printf("\n=== Performing Strength Reduction for Loop ===\n");
+    
+    // 为每个派生归纳变量创建强度削减变量
+    for (ListNode_DerivedInductionVariable_ptr *div_node = loop_ivs->derived_ivs.head;
+         div_node != NULL; div_node = div_node->nxt) {
+        
+        DerivedInductionVariable_ptr derived_iv = div_node->val;
+        
+        // 只对系数不为1的派生归纳变量进行强度削减
+        if (derived_iv->coefficient == 1) {        printf("Skipping strength reduction for v%u (coefficient = 1)\n",
+               derived_iv->variable);
+            continue;
+        }
+        
+        printf("Processing derived induction variable v%u = %d * v%u + %d\n",
+               derived_iv->variable,
+               derived_iv->coefficient,
+               derived_iv->basic_iv->variable,
+               derived_iv->constant);
+        
+        // 创建强度削减变量
+        StrengthReductionVariable_ptr sr_var = create_strength_reduction_variable(derived_iv);
+        if (!sr_var) continue;
+        
+        // 在前序块中创建初始化
+        create_initialization_in_preheader(sr_var, derived_iv, loop_ivs->loop);
+        
+        // 在循环体中创建增量更新
+        create_increment_in_loop(sr_var, loop_ivs->loop);
+        
+        // 替换原变量的使用并移除原定义
+        replace_derived_variable_uses(sr_var, derived_iv, loop_ivs);
+        
+        // 将强度削减变量添加到列表中
+        ListNode_StrengthReductionVariable_ptr *sr_node = malloc(sizeof(ListNode_StrengthReductionVariable_ptr));
+        sr_node->val = sr_var;
+        sr_node->nxt = NULL;
+        
+        if (loop_ivs->strength_reduction_vars.tail) {
+            loop_ivs->strength_reduction_vars.tail->nxt = sr_node;
+            loop_ivs->strength_reduction_vars.tail = sr_node;
+        } else {
+            loop_ivs->strength_reduction_vars.head = sr_node;
+            loop_ivs->strength_reduction_vars.tail = sr_node;
+        }
+    }
+    
+    printf("=== Strength Reduction Complete ===\n\n");
+}
+
+/**
+ * @brief 对所有函数的所有循环执行强度削减
+ */
+void perform_strength_reduction_all_functions(IR_program *program) {
+    if (!program) return;
+    
+    printf("\n=== Starting Strength Reduction for All Functions ===\n");
+    
+    for (ListNode_IR_function_ptr *func_node = program->function_list.head;
+         func_node != NULL; func_node = func_node->nxt) {
+        
+        IR_function_ptr function = func_node->val;
+        printf("\nProcessing function: %s\n", function->name);
+        
+        // 首先进行循环分析
+        LoopAnalysisResult *loop_result = analyze_loops_in_function(function);
+        if (!loop_result) continue;
+        
+        // 对每个循环进行归纳变量分析和强度削减
+        for (ListNode_Loop_ptr *loop_node = loop_result->loops.head;
+             loop_node != NULL; loop_node = loop_node->nxt) {
+            
+            Loop_ptr loop = loop_node->val;
+            
+            // 进行归纳变量分析
+            LoopInductionVariables_ptr loop_ivs = analyze_induction_variables_in_loop(loop);
+            if (!loop_ivs) continue;
+            
+            // 执行强度削减
+            perform_strength_reduction(loop_ivs);
+        }
+        
+        // 清理循环分析结果
+        cleanup_loop_analysis_result(loop_result);
+    }
+    
+    printf("=== Strength Reduction Complete for All Functions ===\n");
+}
+
+/**
+ * @brief 对单个函数的所有循环执行强度削减
+ */
+void perform_strength_reduction_for_function(IR_function_ptr function, LoopAnalyzer *loop_analyzer) {
+    if (!function || !loop_analyzer) return;
+    
+    printf("=== Starting Strength Reduction for Function: %s ===\n", function->func_name);
+    
+    // 执行归纳变量分析
+    InductionVariableAnalyzer iv_analyzer;
+    InductionVariableAnalyzer_init(&iv_analyzer, function, loop_analyzer);
+    InductionVariableAnalyzer_analyze(&iv_analyzer);
+    
+    // 对每个循环执行强度削减
+    for (int i = 0; i < List_Loop_ptr_size(loop_analyzer->loops); i++) {
+        Loop_ptr loop = List_Loop_ptr_get(loop_analyzer->loops, i);
+        
+        // 获取循环的归纳变量信息
+        LoopInductionVariables_ptr loop_ivs = InductionVariableAnalyzer_get_loop_ivs(&iv_analyzer, loop);
+        if (!loop_ivs || !loop_ivs->derived_ivs.head) {
+            printf("No derived induction variables found in loop %d\n", loop->id);
+            continue;
+        }
+        
+        printf("Performing strength reduction for loop %d\n", loop->id);
+        
+        // 执行强度削减
+        perform_strength_reduction(loop_ivs);
+    }
+    
+    InductionVariableAnalyzer_teardown(&iv_analyzer);
+    printf("=== Strength Reduction Complete for Function: %s ===\n", function->func_name);
+}
+
+/**
+ * @brief 在语句中替换变量使用
+ */
+static void replace_variable_in_stmt(IR_stmt *stmt, IR_var old_var, IR_var new_var) {
+    if (!stmt) return;
+    
+    switch (stmt->kind) {
+        case IR_ASSIGN:
+            if (stmt->stmt_assign && stmt->stmt_assign->rvalue) {
+                replace_variable_in_operand(stmt->stmt_assign->rvalue, old_var, new_var);
+            }
+            break;
+        case IR_IF:
+            if (stmt->stmt_if && stmt->stmt_if->condition) {
+                replace_variable_in_operand(stmt->stmt_if->condition, old_var, new_var);
+            }
+            break;
+        case IR_RETURN:
+            if (stmt->stmt_return && stmt->stmt_return->operand) {
+                replace_variable_in_operand(stmt->stmt_return->operand, old_var, new_var);
+            }
+            break;
+        case IR_CALL:
+            if (stmt->stmt_call && stmt->stmt_call->args) {
+                for (ListNode_IR_operand_ptr *arg_node = stmt->stmt_call->args->head;
+                     arg_node != NULL; arg_node = arg_node->nxt) {
+                    replace_variable_in_operand(arg_node->val, old_var, new_var);
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+/**
+ * @brief 在操作数中替换变量使用
+ */
+static void replace_variable_in_operand(IR_operand *operand, IR_var old_var, IR_var new_var) {
+    if (!operand) return;
+    
+    switch (operand->kind) {
+        case IR_OPERAND_VAR:
+            if (operand->operand_var == old_var) {
+                operand->operand_var = new_var;
+                printf("    Replaced variable use: v%u -> v%u\n",
+                       old_var,
+                       new_var);
+            }
+            break;
+        case IR_OPERAND_BINARY:
+            if (operand->operand_binary) {
+                replace_variable_in_operand(operand->operand_binary->left, old_var, new_var);
+                replace_variable_in_operand(operand->operand_binary->right, old_var, new_var);
+            }
+            break;
+        case IR_OPERAND_UNARY:
+            if (operand->operand_unary) {
+                replace_variable_in_operand(operand->operand_unary->operand, old_var, new_var);
+            }
+            break;
+        default:
+            break;
+    }
+}

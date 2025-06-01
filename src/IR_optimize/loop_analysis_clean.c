@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Forward declaration for default teardown
+static void IR_stmt_teardown_default(IR_stmt *stmt) { }
+
 //// ================================== 容器类型定义 ==================================
 
 // BackEdge的比较函数
@@ -138,7 +141,7 @@ void LoopAnalyzer_teardown(LoopAnalyzer *analyzer) {
 static void detect_back_edges(LoopAnalyzer *analyzer) {
     if (!analyzer || !analyzer->function || !analyzer->dom_analyzer) return;
     
-    printf("=== 检测回边 ===\n");
+    // printf("=== 检测回边 ===\n");
     
     // 遍历所有基本块
     for (ListNode_IR_block_ptr *block_node = analyzer->function->blocks.head; 
@@ -163,13 +166,13 @@ static void detect_back_edges(LoopAnalyzer *analyzer) {
                     if (successor == block) {
                         // 只有当控制流图中确实存在从节点到自己的边时，才认为是回边
                         // 这种情况很少见，通常出现在无限循环中
-                        printf("发现自环回边: B%u -> B%u (自循环)\n", 
-                               block->label, successor->label);
+                        // printf("发现自环回边: B%u -> B%u (自循环)\n", 
+                        //        block->label, successor->label);
                     } else {
                         // 正常的回边：后继严格支配当前节点
-                        printf("发现回边: B%u -> B%u (B%u 支配 B%u)\n", 
-                               block->label, successor->label, 
-                               successor->label, block->label);
+                        // printf("发现回边: B%u -> B%u (B%u 支配 B%u)\n", 
+                        //        block->label, successor->label, 
+                        //        successor->label, block->label);
                     }
                     
                     BackEdge back_edge;
@@ -187,7 +190,7 @@ static void detect_back_edges(LoopAnalyzer *analyzer) {
         edge_count++;
     }
     
-    printf("总共发现 %d 条回边\n\n", edge_count);
+    // printf("总共发现 %d 条回边\n\n", edge_count);
 }
 
 //// ================================== 自然循环构造 ==================================
@@ -199,8 +202,8 @@ static void detect_back_edges(LoopAnalyzer *analyzer) {
 static void construct_natural_loop(LoopAnalyzer *analyzer, BackEdge *back_edge, Loop *loop) {
     if (!analyzer || !back_edge || !loop) return;
     
-    printf("构造自然循环，头节点: B%u, 回边源: B%u\n", 
-           back_edge->target->label, back_edge->source->label);
+    // printf("构造自然循环，头节点: B%u, 回边源: B%u\n", 
+    //        back_edge->target->label, back_edge->source->label);
     
     // 初始化工作列表，从回边源开始
     List_IR_block_ptr worklist;
@@ -231,7 +234,7 @@ static void construct_natural_loop(LoopAnalyzer *analyzer, BackEdge *back_edge, 
                     Loop_add_block(loop, predecessor);
                     VCALL(worklist, push_back, predecessor);
                     
-                    printf("  添加节点 B%u 到循环\n", predecessor->label);
+                    // printf("  添加节点 B%u 到循环\n", predecessor->label);
                 }
             }
         }
@@ -248,7 +251,7 @@ static void construct_natural_loop(LoopAnalyzer *analyzer, BackEdge *back_edge, 
         // 这里只是估算，实际实现需要遍历整个treap
     }
     
-    printf("循环构造完成，包含约 %d 个基本块\n\n", block_count);
+    // printf("循环构造完成，包含约 %d 个基本块\n\n", block_count);
 }
 
 //// ================================== 循环检测主算法 ==================================
@@ -256,8 +259,8 @@ static void construct_natural_loop(LoopAnalyzer *analyzer, BackEdge *back_edge, 
 void LoopAnalyzer_detect_loops(LoopAnalyzer *analyzer) {
     if (!analyzer || !analyzer->function || !analyzer->dom_analyzer) return;
     
-    printf("=== 开始循环检测 ===\n");
-    printf("函数: %s\n", analyzer->function->func_name);
+    // printf("=== 开始循环检测 ===\n");
+    // printf("函数: %s\n", analyzer->function->func_name);
     
     // 1. 检测所有回边
     detect_back_edges(analyzer);
@@ -283,13 +286,13 @@ void LoopAnalyzer_detect_loops(LoopAnalyzer *analyzer) {
         if (existing_loop) {
             // 为现有循环添加回边源
             Loop_add_back_edge_source(existing_loop, back_edge.source);
-            printf("为现有循环 (头节点 B%u) 添加回边源 B%u\n", 
-                   existing_loop->header->label, back_edge.source->label);
+            // printf("为现有循环 (头节点 B%u) 添加回边源 B%u\n", 
+                //    existing_loop->header->label, back_edge.source->label);
         } else {
             // 创建新循环
             Loop_ptr new_loop = (Loop_ptr)malloc(sizeof(Loop));
             if (!new_loop) {
-                printf("错误: 内存分配失败\n");
+                // printf("错误: 内存分配失败\n");
                 continue;
             }
             
@@ -302,7 +305,7 @@ void LoopAnalyzer_detect_loops(LoopAnalyzer *analyzer) {
             // 添加到分析器的循环列表
             VCALL(analyzer->all_loops, push_back, new_loop);
             
-            printf("创建新循环，头节点: B%u\n", new_loop->header->label);
+            // printf("创建新循环，头节点: B%u\n", new_loop->header->label);
         }
     }
     
@@ -322,8 +325,8 @@ void LoopAnalyzer_detect_loops(LoopAnalyzer *analyzer) {
         loop_count++;
     }
     
-    printf("=== 循环检测完成 ===\n");
-    printf("总共发现 %d 个循环\n\n", loop_count);
+    // printf("=== 循环检测完成 ===\n");
+    // printf("总共发现 %d 个循环\n\n", loop_count);
 }
 
 //// ================================== 循环层次结构构建 ==================================
@@ -331,7 +334,7 @@ void LoopAnalyzer_detect_loops(LoopAnalyzer *analyzer) {
 void LoopAnalyzer_build_loop_hierarchy(LoopAnalyzer *analyzer) {
     if (!analyzer) return;
     
-    printf("=== 构建循环层次结构 ===\n");
+    // printf("=== 构建循环层次结构 ===\n");
     
     // 首先将所有循环标记为顶层循环
     for (ListNode_Loop_ptr *node = analyzer->all_loops.head; node != NULL; node = node->nxt) {
@@ -371,8 +374,8 @@ void LoopAnalyzer_build_loop_hierarchy(LoopAnalyzer *analyzer) {
                         remove_node = remove_node->nxt;
                     }
                     
-                    printf("循环 B%u 嵌套在循环 B%u 中，深度: %d\n", 
-                           inner_loop->header->label, outer_loop->header->label, inner_loop->depth);
+                    // printf("循环 B%u 嵌套在循环 B%u 中，深度: %d\n", 
+                        //    inner_loop->header->label, outer_loop->header->label, inner_loop->depth);
                 }
             }
         }
@@ -384,8 +387,8 @@ void LoopAnalyzer_build_loop_hierarchy(LoopAnalyzer *analyzer) {
         top_count++;
     }
     
-    printf("=== 循环层次结构构建完成 ===\n");
-    printf("顶层循环数量: %d\n\n", top_count);
+    // printf("=== 循环层次结构构建完成 ===\n");
+    // printf("顶层循环数量: %d\n\n", top_count);
 }
 
 //// ================================== 查询接口实现 ==================================
@@ -415,14 +418,14 @@ void Loop_get_exit_blocks(Loop *loop, List_IR_block_ptr *exits) {
     
     // 遍历循环中的所有块（简化实现）
     // 实际需要遍历Set_IR_block_ptr，这里跳过详细实现
-    printf("获取循环 B%u 的退出块（功能未完全实现）\n", loop->header->label);
+    // printf("获取循环 B%u 的退出块（功能未完全实现）\n", loop->header->label);
 }
 
 void Loop_get_exit_targets(Loop *loop, List_IR_block_ptr *exit_targets) {
     if (!loop || !exit_targets) return;
     
     // 遍历循环中的所有块（简化实现）
-    printf("获取循环 B%u 的退出目标（功能未完全实现）\n", loop->header->label);
+    // printf("获取循环 B%u 的退出目标（功能未完全实现）\n", loop->header->label);
 }
 
 //// ================================== 预备首部创建 ==================================
@@ -430,7 +433,7 @@ void Loop_get_exit_targets(Loop *loop, List_IR_block_ptr *exit_targets) {
 void LoopAnalyzer_create_preheaders(LoopAnalyzer *analyzer) {
     if (!analyzer) return;
     
-    printf("=== 创建循环预备首部 ===\n");
+    // printf("=== 创建循环预备首部 ===\n");
     
     for (ListNode_Loop_ptr *loop_node = analyzer->all_loops.head;
          loop_node != NULL; loop_node = loop_node->nxt) {
@@ -452,40 +455,76 @@ void LoopAnalyzer_create_preheaders(LoopAnalyzer *analyzer) {
         }
         if (outside_preds.head == NULL) {
             loop->preheader = NULL;
-            printf("循环 B%u 没有外部前驱, 无需预备首部\n", loop->header->label);
+            // printf("循环 B%u 没有外部前驱, 无需预备首部\n", loop->header->label);
         } else if (outside_preds.head == outside_preds.tail &&
                    VCALL(analyzer->function->blk_succ, get, outside_preds.head->val)->head == NULL ? 0 :
                    (VCALL(analyzer->function->blk_succ, get, outside_preds.head->val)->head->val == loop->header &&
                     VCALL(analyzer->function->blk_succ, get, outside_preds.head->val)->head->nxt == NULL)) {
             // 唯一外部前驱且只指向header
             loop->preheader = outside_preds.head->val;
-            printf("循环 B%u 唯一外部前驱 B%u 作为预备首部\n", loop->header->label, loop->preheader->label);
+            // printf("循环 B%u 唯一外部前驱 B%u 作为预备首部\n", loop->header->label, loop->preheader->label);
         } else {
             // 创建新的preheader块
             IR_block_ptr preheader = (IR_block_ptr)malloc(sizeof(IR_block));
-            memset(preheader, 0, sizeof(IR_block));
-            preheader->label = ir_label_generator(); // 你需要有一个label分配器
-            List_IR_stmt_ptr_init(&preheader->stmts);
-            preheader->dead = false;
-            // preheader无条件跳转到header
-            // 这里假设你有IR_goto_new等API
-            IR_stmt *goto_stmt = IR_goto_new(loop->header);
-            VCALL(preheader->stmts, push_back, goto_stmt);
-            // 将所有外部前驱的跳转目标改为preheader
+            IR_block_init(preheader, ir_label_generator());
+            
+            // Create goto statement to header using proper initialization
+            IR_goto_stmt *goto_stmt = (IR_goto_stmt*)malloc(sizeof(IR_goto_stmt));
+            IR_goto_stmt_init(goto_stmt, loop->header->label);
+            goto_stmt->blk = loop->header;
+            
+            VCALL(preheader->stmts, push_back, (IR_stmt*)goto_stmt);
+            
+            // Add preheader to function's block list
+            VCALL(analyzer->function->blocks, push_back, preheader);
+            
+            // Initialize CFG entries for the new block
+            VCALL(analyzer->function->blk_pred, insert, preheader, NEW(List_IR_block_ptr));
+            VCALL(analyzer->function->blk_succ, insert, preheader, NEW(List_IR_block_ptr));
+            
+            // Add edge from preheader to header
+            List_IR_block_ptr *preheader_succs = VCALL(analyzer->function->blk_succ, get, preheader);
+            List_IR_block_ptr *header_preds = VCALL(analyzer->function->blk_pred, get, loop->header);
+            VCALL(*preheader_succs, push_back, loop->header);
+            VCALL(*header_preds, push_back, preheader);
+            
+            // Redirect all outside predecessors to point to preheader instead of header
             for (ListNode_IR_block_ptr *pred_node = outside_preds.head; pred_node; pred_node = pred_node->nxt) {
                 IR_block_ptr pred = pred_node->val;
-                // 你需要实现/调用一个API来修改pred的跳转目标
-                replace_successor(pred, loop->header, preheader);
+                
+                // Update predecessor's successor list: remove header, add preheader
+                List_IR_block_ptr *pred_succs = VCALL(analyzer->function->blk_succ, get, pred);
+                if (pred_succs) {
+                    // Remove header from pred's successors
+                    for (ListNode_IR_block_ptr *succ_node = pred_succs->head; succ_node; succ_node = succ_node->nxt) {
+                        if (succ_node->val == loop->header) {
+                            succ_node->val = preheader;
+                            break;
+                        }
+                    }
+                }
+                
+                // Add pred to preheader's predecessors
+                List_IR_block_ptr *preheader_preds = VCALL(analyzer->function->blk_pred, get, preheader);
+                VCALL(*preheader_preds, push_back, pred);
+                
+                // Remove pred from header's predecessors (but keep back edges)
+                if (!Loop_contains_block(loop, pred)) {
+                    for (ListNode_IR_block_ptr *header_pred = header_preds->head; header_pred; header_pred = header_pred->nxt) {
+                        if (header_pred->val == pred) {
+                            VCALL(*header_preds, delete, header_pred);
+                            break;
+                        }
+                    }
+                }
             }
-            // 把preheader插入到函数的block列表
-            VCALL(analyzer->function->blocks, push_back, preheader);
             loop->preheader = preheader;
-            printf("循环 B%u 创建新预备首部 B%u\n", loop->header->label, preheader->label);
+            // printf("循环 B%u 创建新预备首部 B%u\n", loop->header->label, preheader->label);
         }
         List_IR_block_ptr_teardown(&outside_preds);
     }
     
-    printf("=== 预备首部创建完成 ===\n\n");
+    // printf("=== 预备首部创建完成 ===\n\n");
 }
 
 //// ================================== 结果输出 ==================================

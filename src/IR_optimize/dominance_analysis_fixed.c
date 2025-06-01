@@ -32,20 +32,20 @@ void DominanceAnalyzer_init(DominanceAnalyzer *analyzer, IR_function *func) {
     // 找到入口基本块
     if (func->entry) {
         analyzer->entry_block = func->entry;
-        printf("Entry block found from func->entry: %p\n", analyzer->entry_block);
+        // printf("Entry block found from func->entry: %p\n", analyzer->entry_block);
     } else if (func->blocks.head) {
         analyzer->entry_block = func->blocks.head->val;
-        printf("Entry block found from first block: %p\n", analyzer->entry_block);
+        // printf("Entry block found from first block: %p\n", analyzer->entry_block);
     } else {
         analyzer->entry_block = NULL;
-        printf("Warning: No blocks found in function\n");
+        // printf("Warning: No blocks found in function\n");
         return;
     }
     
     // 为每个基本块初始化支配信息
     for_list(IR_block_ptr, i, func->blocks) {
         DominanceInfo info;
-        printf("%d\n",i->val->label);
+        // printf("%d\n",i->val->label);
         DominanceInfo_init(&info, i->val);
         VCALL(analyzer->dom_info, insert, i->val, info);
     }
@@ -71,7 +71,7 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
     int iteration = 0;
     const int MAX_ITERATIONS = 100; // 降低最大迭代次数进行测试
     
-    printf("Starting simplified dominance analysis for function: %s\n", func->func_name);
+    // printf("Starting simplified dominance analysis for function: %s\n", func->func_name);
     
     // 步骤1：初始化支配集合
     for_list(IR_block_ptr, i, func->blocks) {
@@ -80,13 +80,13 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
         if (i->val == analyzer->entry_block) {
             // 入口节点只被自己支配
             VCALL(info.dominators, insert, i->val);
-            printf("Entry block %p: dominators = {self}\n", i->val);
+            // printf("Entry block %p: dominators = {self}\n", i->val);
         } else {
             // 其他节点初始化为被所有节点支配
             for_list(IR_block_ptr, j, func->blocks) {
                 VCALL(info.dominators, insert, j->val);
             }
-            printf("Block %p: dominators = {all blocks}\n", i->val);
+            // printf("Block %p: dominators = {all blocks}\n", i->val);
         }
         
         VCALL(analyzer->dom_info, set, i->val, info);
@@ -96,14 +96,14 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
     while (changed && iteration < MAX_ITERATIONS) {
         changed = false;
         iteration++;
-        printf("\n=== Iteration %d ===\n", iteration);
+        // printf("\n=== Iteration %d ===\n", iteration);
         
         for_list(IR_block_ptr, i, func->blocks) {
             if (i->val == analyzer->entry_block) {
                 continue; // 跳过入口节点
             }
             
-            printf("Processing block %p:\n", i->val);
+            // printf("Processing block %p:\n", i->val);
             
             DominanceInfo current_info = VCALL(analyzer->dom_info, get, i->val);
             
@@ -111,13 +111,13 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
             Set_IR_block_ptr new_dominators;
             Set_IR_block_ptr_init(&new_dominators);
             VCALL(new_dominators, insert, i->val);
-            printf("INSERTED:%p", i->val);
+            // printf("INSERTED:%p", i->val);
             
             // 获取前驱节点
             List_IR_block_ptr *predecessors = VCALL(func->blk_pred, get, i->val);
             
             if (predecessors && predecessors->head) {
-                printf("  Has predecessors, computing intersection...\n");
+                // printf("  Has predecessors, computing intersection...\n");
                 
                 // 初始化交集为第一个前驱的支配集合
                 bool first_pred = true;
@@ -128,10 +128,10 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
                         // 第一个前驱：复制其支配集合
                         for_set(IR_block_ptr, dom_block, pred_info.dominators) {
                             VCALL(new_dominators, insert, dom_block->key);
-                            printf("INSERTED:%p\n", dom_block->key);
+                            // printf("INSERTED:%p\n", dom_block->key);
                         }
                         first_pred = false;
-                        printf("    Initialized with pred %p dominators\n", pred->val);
+                        // printf("    Initialized with pred %p dominators\n", pred->val);
                     } else {
                         // 后续前驱：计算交集
                         Set_IR_block_ptr intersection;
@@ -145,14 +145,14 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
                         
                         Set_IR_block_ptr_teardown(&new_dominators);
                         new_dominators = intersection;
-                        printf("    Intersected with pred %p dominators\n", pred->val);
+                        // printf("    Intersected with pred %p dominators\n", pred->val);
                     }
                 }
                 
                 // 确保包含节点本身
                 VCALL(new_dominators, insert, i->val);
             } else {
-                printf("  No predecessors found\n");
+                // printf("  No predecessors found\n");
             }
             
             // 检查是否有变化
@@ -177,33 +177,33 @@ void DominanceAnalyzer_compute_dominators(DominanceAnalyzer *analyzer) {
             
             if (!sets_equal) {
                 changed = true;
-                printf("  Dominance set changed (old_size=%d, new_size=%d)\n", old_count, new_count);
+                // printf("  Dominance set changed (old_size=%d, new_size=%d)\n", old_count, new_count);
                 
                 // 更新支配集合
                 Set_IR_block_ptr_teardown(&current_info.dominators);
                 current_info.dominators = new_dominators;
                 VCALL(analyzer->dom_info, set, i->val, current_info);
             } else {
-                printf("  Dominance set unchanged (size=%d)\n", old_count);
+                // printf("  Dominance set unchanged (size=%d)\n", old_count);
                 Set_IR_block_ptr_teardown(&new_dominators);
             }
         }
         // 打印每次迭代后的支配集合
-        printf("当前各基本块的支配集合：\n");
-        for_list(IR_block_ptr, blk, func->blocks) {
-            DominanceInfo info = VCALL(analyzer->dom_info, get, blk->val);
-            printf("  Block %p [L%u] in SET: { ", blk->val, blk->val->label);
-            for_set(IR_block_ptr, dom, info.dominators) {
-                printf("%p ", dom->key);
-            }
-            printf("}\n");
-        }
+        // printf("当前各基本块的支配集合：\n");
+        // for_list(IR_block_ptr, blk, func->blocks) {
+        //     DominanceInfo info = VCALL(analyzer->dom_info, get, blk->val);
+        //     printf("  Block %p [L%u] in SET: { ", blk->val, blk->val->label);
+        //     for_set(IR_block_ptr, dom, info.dominators) {
+        //         printf("%p ", dom->key);
+        //     }
+        //     printf("}\n");
+        // }
     }
     
-    printf("\nDominance analysis completed after %d iterations\n", iteration);
-    if (iteration >= MAX_ITERATIONS) {
-        printf("WARNING: Reached maximum iterations - may not have converged\n");
-    }
+    // printf("\nDominance analysis completed after %d iterations\n", iteration);
+    // if (iteration >= MAX_ITERATIONS) {
+    //     printf("WARNING: Reached maximum iterations - may not have converged\n");
+    // }
 }
 
 // ================================== 支配关系查询接口 ==================================

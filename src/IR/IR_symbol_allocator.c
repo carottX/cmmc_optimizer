@@ -12,6 +12,7 @@ static IR_label free_label[FREE_STACK_SIZE];
 static unsigned free_var_top = 0, free_label_top = 0;
 
 IR_var ir_var_generator() {
+    // puts("[LOG] GENERATED");
     if(free_var_top)
         return free_var[free_var_top--];
     else

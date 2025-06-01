@@ -11,6 +11,9 @@
         "vector": "c",
         "available_expressions_analysis.h": "c",
         "dataflow_analysis.h": "c",
-        "ir.h": "c"
+        "ir.h": "c",
+        "copy_propagation.h": "c",
+        "dominance_analysis.h": "c",
+        "loop_analysis.h": "c"
     }
 }

@@ -208,6 +208,12 @@ ConstantPropagation_meetInto (ConstantPropagation *t,
 void ConstantPropagation_transferStmt (ConstantPropagation *t,
                                        IR_stmt *stmt,      // 当前处理的语句
                                        Map_IR_var_CPValue *fact) { // 当前语句执行前的数据流事实，会被修改以反映语句执行后的状态
+    // Safety check for NULL statement or vtable
+    if (!stmt || !stmt->vTable) {
+        printf("Warning: NULL statement or vtable encountered in ConstantPropagation_transferStmt\n");
+        return;
+    }
+    
     if(stmt->stmt_type == IR_ASSIGN_STMT) { // 处理赋值语句: rd := rs
         IR_assign_stmt *assign_stmt = (IR_assign_stmt*)stmt;
         IR_var def = assign_stmt->rd; // 定义的变量 rd
@@ -233,6 +239,12 @@ void ConstantPropagation_transferStmt (ConstantPropagation *t,
         Fact_update_value(fact, def, result_val);
         // TODO();
     } else { // 处理其他可能定义新变量的语句（如READ, CALL, LOAD）
+        // Additional safety check for get_def function
+        if (!stmt->vTable->get_def) {
+            printf("Warning: NULL get_def function in vtable for stmt type %d\n", stmt->stmt_type);
+            return;
+        }
+        
         IR_var def = VCALL(*stmt, get_def); // 获取语句定义的变量
         if(def != IR_VAR_NONE) { // 如果语句确实定义了一个变量
             /* TODO: solve stmt with new_def
