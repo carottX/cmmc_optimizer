@@ -3,6 +3,7 @@
 //
 
 #include <IR_optimize.h>
+#include <IR.h>
 #include <live_variable_analysis.h>
 #include <constant_propagation.h>
 #include <available_expressions_analysis.h>
@@ -10,6 +11,9 @@
 #include <dominance_analysis.h>
 #include <loop_analysis.h>
 #include <induction_variable_analysis.h>
+#include <container/treap.h>
+
+#include <licm.h>
 #include <stdio.h>
 
 void remove_dead_block(IR_function *func) {
@@ -43,8 +47,6 @@ void _IR_block_print(IR_block *block, FILE *out) {
     }
 
 void IR_optimize() {
-    // 首先执行支配节点分析
-    // printf("========== 执行支配节点分析 ==========\n");
     if (!ir_program_global) {
         printf("错误: 全局IR程序为空\n");
         return;
@@ -56,44 +58,28 @@ void IR_optimize() {
     LiveVariableAnalysis *liveVariableAnalysis;
     for_vec(IR_function_ptr, i, ir_program_global->functions) {
         IR_function *func = *i;
-        
-        // 对当前函数执行支配节点分析
-        // printf("开始对函数 '%s' 进行支配节点分析...\n\n", func->func_name);
+
         DominanceAnalyzer dom_analyzer;
         DominanceAnalyzer_init(&dom_analyzer, func);
         DominanceAnalyzer_compute_dominators(&dom_analyzer);
-        // DominanceAnalyzer_print_result(&dom_analyzer, stdout);
-        
-        // 执行循环分析
-        // printf("开始对函数 '%s' 进行循环分析...\n\n", func->func_name);
+
         LoopAnalyzer loop_analyzer;
         LoopAnalyzer_init(&loop_analyzer, func, &dom_analyzer);
         LoopAnalyzer_detect_loops(&loop_analyzer);
         LoopAnalyzer_build_loop_hierarchy(&loop_analyzer);
         
-        // 创建循环前序块（preheader）- 强度削减优化需要
         LoopAnalyzer_create_preheaders(&loop_analyzer);
         
-        // LoopAnalyzer_print_result(&loop_analyzer, stdout);
-        
-        // 执行归纳变量分析
-        // printf("开始对函数 '%s' 进行归纳变量分析...\n\n", func->func_name);
-        perform_induction_variable_analysis(func, &loop_analyzer);
-        
-        // 演示强度削减优化机会
-        // printf("开始演示函数 '%s' 的强度削减优化...\n\n", func->func_name);
-        // demonstrate_strength_reduction(func, &loop_analyzer);
-        
-        // 执行实际的强度削减优化
-        // printf("\n=== 执行实际强度削减优化 ===\n");
+        // LICMAnalyzer licm_analyzer;
+        // LICMAnalyzer_init(&licm_analyzer, func, &loop_analyzer, &dom_analyzer);
+        // bool licm_modified = LICMAnalyzer_optimize(&licm_analyzer);
+        // LICMAnalyzer_teardown(&licm_analyzer);
+            
         perform_strength_reduction_for_function(func, &loop_analyzer);
-        // printf("=== 强度削减优化完成 ===\n");
         
-        // 清理分析器
         LoopAnalyzer_teardown(&loop_analyzer);
         DominanceAnalyzer_teardown(&dom_analyzer);
 
-        // 全局公共表达式消除, 可替换为局部
         {
             //// Constant Propagation
 
@@ -140,6 +126,5 @@ void IR_optimize() {
             DELETE(liveVariableAnalysis);
             if(!updated) break;
         }
-
     }
 }

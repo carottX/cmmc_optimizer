@@ -14,6 +14,10 @@
         "ir.h": "c",
         "copy_propagation.h": "c",
         "dominance_analysis.h": "c",
-        "loop_analysis.h": "c"
+        "loop_analysis.h": "c",
+        "licm.h": "c",
+        "stdio.h": "c",
+        "induction_variable_analysis.h": "c",
+        "treap.h": "c"
     }
 }

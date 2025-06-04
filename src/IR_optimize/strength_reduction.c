@@ -189,22 +189,23 @@ static void create_increment_in_loop(StrengthReductionVariable_ptr sr_var, Loop_
         return;
     }
     
-    // 在循环的最后一个块中创建增量语句：sr_var = sr_var + increment_value
-    // 找到循环的最后一个基本块
-    IR_block *last_block = NULL;
-    for_set(IR_block_ptr, i, loop->blocks) {
-        if (i->key == NULL) {
-            printf("Warning: NULL block found in loop->blocks\n");
-            continue;
-        }
-        last_block = i->key;  // 获取集合中的块指针
-    }
-    
-    if (!last_block) {
-        printf("Error: No valid last_block found in loop\n");
+    // 获取对应的基本归纳变量
+    DerivedInductionVariable_ptr derived_iv = sr_var->original_derived_iv;
+    if (!derived_iv || !derived_iv->basic_iv) {
+        printf("Error: NULL derived_iv or basic_iv in create_increment_in_loop\n");
         return;
     }
-    sr_var->increment_block = last_block;
+    
+    BasicInductionVariable_ptr basic_iv = derived_iv->basic_iv;
+    IR_block_ptr target_block = basic_iv->increment_block;
+    IR_stmt *basic_increment_stmt = basic_iv->increment_stmt;
+    
+    if (!target_block || !basic_increment_stmt) {
+        printf("Error: NULL target_block or basic_increment_stmt\n");
+        return;
+    }
+    
+    sr_var->increment_block = target_block;
     
     // 创建直接增量语句，不引入临时变量
     IR_val sr_var_val = {.is_const = false, .var = sr_var->new_variable};
@@ -215,33 +216,40 @@ static void create_increment_in_loop(StrengthReductionVariable_ptr sr_var, Loop_
     IR_op_stmt_init(inc_stmt, IR_OP_ADD, sr_var->new_variable, sr_var_val, increment_val);
     sr_var->increment_stmt = (IR_stmt*)inc_stmt;
     
-    // 将增量语句添加到最后一个块的末尾（在跳转语句之前）
-    // 需要找到合适的位置插入
-    if (last_block->stmts.tail == NULL) {
-        // 空块，直接添加
-        VCALL(last_block->stmts, push_back, sr_var->increment_stmt);
-    } else {
-        IR_stmt *last_stmt = last_block->stmts.tail->val;
-        if (last_stmt->stmt_type == IR_GOTO_STMT || last_stmt->stmt_type == IR_IF_STMT) {
-            // 在跳转语句之前插入
-            ListNode_IR_stmt_ptr *new_node = (ListNode_IR_stmt_ptr*)malloc(sizeof(ListNode_IR_stmt_ptr));
-            new_node->val = sr_var->increment_stmt;
-            new_node->nxt = last_block->stmts.tail;
-            new_node->pre = last_block->stmts.tail->pre;
-            
-            if (last_block->stmts.tail->pre) {
-                last_block->stmts.tail->pre->nxt = new_node;
-            } else {
-                last_block->stmts.head = new_node;
-            }
-            last_block->stmts.tail->pre = new_node;
-        } else {
-            // 直接添加到末尾
-            VCALL(last_block->stmts, push_back, sr_var->increment_stmt);
+    // 在基本归纳变量更新语句之后插入派生归纳变量的增量语句
+    // 首先找到基本归纳变量更新语句在链表中的位置
+    ListNode_IR_stmt_ptr *target_node = NULL;
+    for (ListNode_IR_stmt_ptr *node = target_block->stmts.head; node != NULL; node = node->nxt) {
+        if (node->val == basic_increment_stmt) {
+            target_node = node;
+            break;
         }
     }
     
-    // printf("Added increment for v%u in loop\n", sr_var->new_variable);
+    if (!target_node) {
+        printf("Error: Could not find basic increment statement in target block\n");
+        return;
+    }
+    
+    // 创建新的链表节点
+    ListNode_IR_stmt_ptr *new_node = (ListNode_IR_stmt_ptr*)malloc(sizeof(ListNode_IR_stmt_ptr));
+    new_node->val = sr_var->increment_stmt;
+    
+    // 将新节点插入到基本归纳变量更新语句之后
+    new_node->nxt = target_node->nxt;
+    new_node->pre = target_node;
+    
+    if (target_node->nxt) {
+        target_node->nxt->pre = new_node;
+    } else {
+        // target_node是最后一个节点，更新tail
+        target_block->stmts.tail = new_node;
+    }
+    
+    target_node->nxt = new_node;
+    
+    // printf("Added increment for v%u after basic IV update in block B%u\n", 
+    //        sr_var->new_variable, target_block->label);
 }
 
 

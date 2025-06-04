@@ -475,8 +475,41 @@ void LoopAnalyzer_create_preheaders(LoopAnalyzer *analyzer) {
             
             VCALL(preheader->stmts, push_back, (IR_stmt*)goto_stmt);
             
-            // Add preheader to function's block list
-            VCALL(analyzer->function->blocks, push_back, preheader);
+            // Insert preheader at correct position in function's block list
+            // Find the position of the loop header and insert preheader before it
+            ListNode_IR_block_ptr *header_node = NULL;
+            for (ListNode_IR_block_ptr *node = analyzer->function->blocks.head; node; node = node->nxt) {
+                if (node->val == loop->header) {
+                    header_node = node;
+                    break;
+                }
+            }
+            
+            if (header_node) {
+                // Create new node for preheader
+                ListNode_IR_block_ptr *new_node = (ListNode_IR_block_ptr*)malloc(sizeof(ListNode_IR_block_ptr));
+                new_node->val = preheader;
+                
+                // Insert before header_node
+                if (header_node == analyzer->function->blocks.head) {
+                    // Insert at the beginning
+                    new_node->nxt = analyzer->function->blocks.head;
+                    analyzer->function->blocks.head = new_node;
+                } else {
+                    // Find the node before header_node
+                    ListNode_IR_block_ptr *prev = analyzer->function->blocks.head;
+                    while (prev && prev->nxt != header_node) {
+                        prev = prev->nxt;
+                    }
+                    if (prev) {
+                        new_node->nxt = header_node;
+                        prev->nxt = new_node;
+                    }
+                }
+            } else {
+                // Fallback: add to end if header not found
+                VCALL(analyzer->function->blocks, push_back, preheader);
+            }
             
             // Initialize CFG entries for the new block
             VCALL(analyzer->function->blk_pred, insert, preheader, NEW(List_IR_block_ptr));

@@ -137,35 +137,125 @@ void InductionVariableAnalyzer_teardown(InductionVariableAnalyzer *analyzer) {
 
 /**
  * @brief 检查语句是否为基本归纳变量的增量操作
- * 形如 i = i + c 或 i = i - c
+ * 形如 i = i + c 或 i = i - c，或者通过临时变量的间接更新
  */
 static bool is_basic_induction_increment(IR_stmt *stmt, 
                                         IR_var *variable, 
                                         int *step, 
                                         bool *is_increment) {
-    if (!stmt || stmt->stmt_type != IR_OP_STMT) return false;
+    if (!stmt) return false;
     
-    IR_op_stmt *op_stmt = (IR_op_stmt*)stmt;
-    
-    // 检查操作类型是否为加法或减法
-    if (op_stmt->op != IR_OP_ADD && op_stmt->op != IR_OP_SUB) return false;
-    
-    // 检查左操作数是否为变量且与目标变量相同
-    if (op_stmt->rs1.is_const || op_stmt->rs1.var != op_stmt->rd) return false;
-    
-    // 检查右操作数是否为常数
-    if (!op_stmt->rs2.is_const) return false;
-    
-    *variable = op_stmt->rd;
-    *step = op_stmt->rs2.const_val;
-    *is_increment = (op_stmt->op == IR_OP_ADD);
-    
-    // 如果是减法，步长应为负数
-    if (!(*is_increment)) {
-        *step = -(*step);
+    // 情况1: 直接的算术操作 i = i + c 或 i = i - c
+    if (stmt->stmt_type == IR_OP_STMT) {
+        IR_op_stmt *op_stmt = (IR_op_stmt*)stmt;
+        
+        // 检查操作类型是否为加法或减法
+        if (op_stmt->op != IR_OP_ADD && op_stmt->op != IR_OP_SUB) return false;
+        
+        // 检查左操作数是否为变量且与目标变量相同
+        if (op_stmt->rs1.is_const || op_stmt->rs1.var != op_stmt->rd) return false;
+        
+        // 检查右操作数是否为常数
+        if (!op_stmt->rs2.is_const) return false;
+        
+        *variable = op_stmt->rd;
+        *step = op_stmt->rs2.const_val;
+        *is_increment = (op_stmt->op == IR_OP_ADD);
+        
+        // 如果是减法，步长应为负数
+        if (!(*is_increment)) {
+            *step = -(*step);
+        }
+        
+        return true;
+    }
+    // 情况2: 赋值语句 i = temp（需要检查temp是否来自i的增量）
+    else if (stmt->stmt_type == IR_ASSIGN_STMT) {
+        IR_assign_stmt *assign_stmt = (IR_assign_stmt*)stmt;
+        
+        // 必须是变量赋值，不能是常量赋值
+        if (assign_stmt->rs.is_const) return false;
+        
+        *variable = assign_stmt->rd;
+        // 标记这是一个可能的间接更新，需要进一步检查
+        // 这里返回false，让调用者去检查是否存在对应的增量操作
+        return false;
     }
     
-    return true;
+    return false;
+}
+
+/**
+ * @brief 检查是否存在间接的归纳变量更新模式
+ * 形如 temp := var + c; var := temp
+ */
+static bool is_indirect_induction_update(IR_block_ptr block, 
+                                        IR_stmt *assign_stmt,
+                                        IR_var *variable,
+                                        int *step,
+                                        bool *is_increment) {
+    if (!assign_stmt || assign_stmt->stmt_type != IR_ASSIGN_STMT) return false;
+    
+    IR_assign_stmt *assignment = (IR_assign_stmt*)assign_stmt;
+    if (assignment->rs.is_const) return false;
+    
+    IR_var target_var = assignment->rd;
+    IR_var temp_var = assignment->rs.var;
+    
+    // 在同一个基本块中向前查找temp_var的定义
+    ListNode_IR_stmt_ptr *current = NULL;
+    
+    // 找到当前赋值语句在列表中的位置
+    for (ListNode_IR_stmt_ptr *node = block->stmts.head; node; node = node->nxt) {
+        if (node->val == assign_stmt) {
+            current = node;
+            break;
+        }
+    }
+    
+    if (!current) return false;
+    
+    // 向前查找temp_var的定义（在当前语句之前）
+    for (ListNode_IR_stmt_ptr *node = block->stmts.head; node != current; node = node->nxt) {
+        IR_stmt *stmt = node->val;
+        
+        if (stmt->stmt_type == IR_OP_STMT) {
+            IR_op_stmt *op_stmt = (IR_op_stmt*)stmt;
+            
+            // 检查是否是temp := target_var + c或temp := target_var - c
+            if (op_stmt->rd == temp_var && 
+                (op_stmt->op == IR_OP_ADD || op_stmt->op == IR_OP_SUB)) {
+                
+                // 检查左操作数是否为目标变量
+                if (!op_stmt->rs1.is_const && op_stmt->rs1.var == target_var &&
+                    op_stmt->rs2.is_const) {
+                    
+                    *variable = target_var;
+                    *step = op_stmt->rs2.const_val;
+                    *is_increment = (op_stmt->op == IR_OP_ADD);
+                    
+                    if (!(*is_increment)) {
+                        *step = -(*step);
+                    }
+                    
+                    return true;
+                }
+                // 检查右操作数是否为目标变量（交换律：c + target_var）
+                else if (op_stmt->op == IR_OP_ADD && 
+                        op_stmt->rs1.is_const && !op_stmt->rs2.is_const &&
+                        op_stmt->rs2.var == target_var) {
+                    
+                    *variable = target_var;
+                    *step = op_stmt->rs1.const_val;
+                    *is_increment = true;
+                    
+                    return true;
+                }
+            }
+        }
+    }
+    
+    return false;
 }
 
 /**
@@ -285,8 +375,9 @@ void InductionVariableAnalyzer_analyze_basic_ivs(InductionVariableAnalyzer *anal
             int step;
             bool is_increment;
             
+            // 首先检查直接的归纳变量增量模式
             if (is_basic_induction_increment(stmt, &variable, &step, &is_increment)) {
-                // printf("  发现潜在基本归纳变量 v%u, 步长: %d\n", variable, step);
+                printf("  发现潜在基本归纳变量 v%u, 步长: %d\n", variable, step);
                 
                 // 检查该变量在循环中是否只有一个定义点
                 IR_stmt *def_stmt;
@@ -309,11 +400,48 @@ void InductionVariableAnalyzer_analyze_basic_ivs(InductionVariableAnalyzer *anal
                             VCALL(loop_ivs->basic_iv_map, set, variable, basic_iv);
                             VCALL(analyzer->global_basic_iv_map, set, variable, basic_iv);
                             
-                            // printf("  确认基本归纳变量 v%u, 步长: %d (%s)\n", 
-                                //    variable, step, is_increment ? "递增" : "递减");
+                            printf("  确认基本归纳变量 v%u, 步长: %d (%s)\n", 
+                                   variable, step, is_increment ? "递增" : "递减");
                         }
                     } else {
                         // printf("  变量 v%u 的定义不在循环头支配的路径上\n", variable);
+                    }
+                }
+            }
+            // 如果不是直接模式，检查是否是间接的归纳变量更新
+            else if (stmt->stmt_type == IR_ASSIGN_STMT) {
+                if (is_indirect_induction_update(block, stmt, &variable, &step, &is_increment)) {
+                    #ifdef DEBUG
+                    printf("  发现间接基本归纳变量 v%u, 步长: %d\n", variable, step);
+                    #endif
+                    // 检查该变量在循环中是否只有一个定义点（应该就是当前的赋值语句）
+                    IR_stmt *def_stmt;
+                    IR_block_ptr def_block;
+                    if (has_single_definition_in_loop(loop, variable, &def_stmt, &def_block)) {
+                        // 检查定义是否在循环头支配的路径上
+                        if (is_defined_on_dominated_path(loop, analyzer->loop_analyzer->dom_analyzer, 
+                                                        variable, def_stmt, def_block)) {
+                            
+                            // 检查是否已经存在
+                            if (!VCALL(loop_ivs->basic_iv_map, exist, variable)) {
+                                // 创建基本归纳变量（使用赋值语句作为增量语句）
+                                BasicInductionVariable_ptr basic_iv = 
+                                    (BasicInductionVariable_ptr)malloc(sizeof(BasicInductionVariable));
+                                BasicInductionVariable_init(basic_iv, variable, block, 
+                                                          stmt, step, is_increment);
+                                
+                                // 添加到循环归纳变量信息中
+                                VCALL(loop_ivs->basic_ivs, push_back, basic_iv);
+                                VCALL(loop_ivs->basic_iv_map, set, variable, basic_iv);
+                                VCALL(analyzer->global_basic_iv_map, set, variable, basic_iv);
+                                #ifdef DEBUG
+                                printf("  确认间接基本归纳变量 v%u, 步长: %d (%s)\n", 
+                                       variable, step, is_increment ? "递增" : "递减");
+                                #endif 
+                            }
+                        } else {
+                            // printf("  变量 v%u 的定义不在循环头支配的路径上\n", variable);
+                        }
                     }
                 }
             }
@@ -458,10 +586,10 @@ void InductionVariableAnalyzer_analyze_derived_ivs(InductionVariableAnalyzer *an
                 // 检查是否已经存在（避免重复添加）
                 if (!VCALL(loop_ivs->derived_iv_map, exist, derived_var) &&
                     !VCALL(loop_ivs->basic_iv_map, exist, derived_var)) {
-                    
-                    // printf("  在基本块 B%u 发现派生归纳变量 v%u = %d * v%u + %d\n", 
-                    //        block->label, derived_var, coefficient, basic_iv->variable, constant);
-                    
+                    #ifdef DEBUG
+                    printf("  在基本块 B%u 发现派生归纳变量 v%u = %d * v%u + %d\n", 
+                           block->label, derived_var, coefficient, basic_iv->variable, constant);
+                    #endif
                     // 创建派生归纳变量
                     DerivedInductionVariable_ptr derived_iv = 
                         (DerivedInductionVariable_ptr)malloc(sizeof(DerivedInductionVariable));
@@ -494,10 +622,10 @@ void InductionVariableAnalyzer_analyze_derived_ivs(InductionVariableAnalyzer *an
 
 void InductionVariableAnalyzer_analyze(InductionVariableAnalyzer *analyzer) {
     if (!analyzer || !analyzer->loop_analyzer) return;
-    
-    // printf("\n=== 执行归纳变量分析 ===\n");
-    // printf("函数: %s\n", analyzer->function->func_name);
-    
+    #ifdef DEBUG
+    printf("\n=== 执行归纳变量分析 ===\n");
+    printf("函数: %s\n", analyzer->function->func_name);
+    #endif 
     // 遍历所有循环
     for_list(Loop_ptr, loop_node, analyzer->loop_analyzer->all_loops){
         
@@ -517,8 +645,10 @@ void InductionVariableAnalyzer_analyze(InductionVariableAnalyzer *analyzer) {
         // 添加到分析器的循环列表中
         VCALL(analyzer->loop_ivs, push_back, loop_ivs);
     }
+    #ifdef DEBUG
     
-    // printf("=== 归纳变量分析完成 ===\n\n");
+    printf("=== 归纳变量分析完成 ===\n\n");
+    #endif
 }
 
 //// ================================== 查询接口实现 ==================================
