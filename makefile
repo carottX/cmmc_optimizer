@@ -53,7 +53,7 @@ YACC_FLAGS    += -d -v
 INC_PATH      += ./include
 INCLUDES       = $(addprefix -I, $(INC_PATH))
 
-COMMON_CFLAGS += -MMD -c -Wall $(INCLUDES) -O2 -g -DDEBUG
+COMMON_CFLAGS += -MMD -c -Wall $(INCLUDES) -O2 -g
 CFLAGS        += $(COMMON_CFLAGS)
 CXX_FLAGS     += $(COMMON_CFLAGS) -std=c++17
 LDFLAGS       += -lfl -ly
